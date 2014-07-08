@@ -1,18 +1,27 @@
 package org.dbd.android.ntp_sync;
 
+import android.app.AlarmManager;
+import android.app.IntentService;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentPagerAdapter;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.view.PagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.ActionBarActivity;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.TabHost;
 import android.widget.Toast;
 
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Vector;
@@ -48,9 +57,21 @@ public class MyActivity extends ActionBarActivity implements TabHost.OnTabChange
             mTabHost.setCurrentTabByTag(savedInstanceState.getString("tab")); //set the tab as per the saved state
         }
         intialiseViewPager();
+        // initialize with service
+        initialiseService();
     }
 
     // ==================================================================
+    // private for UI
+
+    private void initialiseService() {
+        IntentFilter statusIntent = new IntentFilter(NtpService.BROADCAST_ACTION);
+        // Instantiates a new DownloadStateReceiver
+        NtpResultReceiver resultReceiver = new NtpResultReceiver();
+        // Registers the DownloadStateReceiver and its intent filters
+        LocalBroadcastManager.getInstance(this).registerReceiver(resultReceiver, statusIntent);
+        startSync(); // start ntp service
+    }
 
     /**
      * Initialise ViewPager
@@ -74,7 +95,7 @@ public class MyActivity extends ActionBarActivity implements TabHost.OnTabChange
         TabInfo tabInfo = null;
         AddTab(this, this.mTabHost, this.mTabHost.newTabSpec("1").setIndicator("Analog Clock"), (tabInfo = new TabInfo("1", AnalogClockFragment.class, args)));
         this.mapTabInfo.put(tabInfo.tag, tabInfo);
-        AddTab(this, this.mTabHost, this.mTabHost.newTabSpec("1").setIndicator("Digital Clock"), (tabInfo = new TabInfo("1", DigitalClockFragment.class, args)));
+        AddTab(this, this.mTabHost, this.mTabHost.newTabSpec("2").setIndicator("Digital Clock"), (tabInfo = new TabInfo("2", DigitalClockFragment.class, args)));
         this.mapTabInfo.put(tabInfo.tag, tabInfo);
         mTabHost.setOnTabChangedListener(this);
     }
@@ -140,11 +161,12 @@ public class MyActivity extends ActionBarActivity implements TabHost.OnTabChange
         }
         if (id == R.id.action_ntp_sync) {
             Toast.makeText(this, "ntp sync service call", Toast.LENGTH_SHORT).show();
-            NtpService.startSyncTime(this, "", "");
+            startSync();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
+
 
     // ==================================================================
     private class TabInfo {
@@ -159,6 +181,14 @@ public class MyActivity extends ActionBarActivity implements TabHost.OnTabChange
             this.args = args;
         }
 
+    }
+
+
+    // ==================================================================
+    // private function
+
+    private void startSync() {
+        NtpService.startSyncTime(this);
     }
 
     // ==================================================================
@@ -191,5 +221,35 @@ public class MyActivity extends ActionBarActivity implements TabHost.OnTabChange
             return v;
         }
 
+    }
+    // ==================================================================
+
+    // Broadcast receiver for receiving status updates from the IntentService
+    private class NtpResultReceiver extends BroadcastReceiver {
+
+        private static final String TAG = "NtpResultReceiver";
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.e(TAG, "sync had finished & system time set");
+            // TODO start analog clock with timer & customize UI.
+            // TODO set alarm sync at the next time (10 minutes)
+            AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            Calendar alarmTime = Calendar.getInstance();
+            alarmTime.set(Calendar.MINUTE, alarmTime.get(Calendar.MINUTE) + 10);
+            alarmTime.set(Calendar.SECOND, 0);
+            alarmTime.set(Calendar.MILLISECOND, 0);
+            Intent i = new Intent(context, NtpService.class);
+
+            PendingIntent pi = PendingIntent.getService(context, 1, i, PendingIntent.FLAG_NO_CREATE);
+            if (pi == null) {
+                pi = PendingIntent.getService(context, 1, i, PendingIntent.FLAG_ONE_SHOT);
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 5 // next feature in 5ms
+                        , 60000 // 1000 * 60 * 10 + 5  ----  Millisec * Second * Minute at next feature 5ms
+                        , pi);
+            }
+            // TODO restart timer for count down to sync.
+
+        }
     }
 }
